@@ -8,7 +8,7 @@
 
     <body>
         <div id="info">
-            CAVE Simulator. The head and teapot are draggable. <br />
+            CAVE Simulator. The head and objects are draggable. <br />
             "L" See from Left Eye | "R" See from Right Eye | "S" toggle show scene | "W" toogle Frustum View | "Q","E" to toggle left or right Frustum | "1","2","3","4" toggle direction Frustum | "ArrowUp-Down-Left-Right" to change zNear and zFar<br />
         </div>
 
@@ -114,6 +114,10 @@
         {
             var objects = [];
             objects.push(scene.getObjectByName("Teapot"));
+            objects.push(scene.getObjectByName("TorusKnot"));
+            objects.push(scene.getObjectByName("Dodecahedron"));
+            objects.push(scene.getObjectByName("Torus"));
+            objects.push(scene.getObjectByName("Cone"));
             objects.push(eyeScene.getObjectByName("Head"));
 
             //console.log(objects);
@@ -210,8 +214,42 @@
             var teapot = new THREE.Mesh(geometry, material);
             teapot.name = "Teapot";
             teapot.position.z-=70;
+            teapot.position.x-=50;
             scene.add( teapot );
 
+            // Create a Torus Knot geometry
+            var geometry = new THREE.TorusKnotGeometry(1, 0.4, 100, 16);
+            var material = new THREE.MeshStandardMaterial({ color: 0x0077ff, roughness: 0.5, metalness: 0.8 });
+            var torusKnot = new THREE.Mesh(geometry, material);
+            torusKnot.name = "TorusKnot";
+            torusKnot.position.x-=70;
+            torusKnot.scale.set(20, 20, 20);
+            scene.add(torusKnot);
+
+            var geometry = new THREE.DodecahedronGeometry(1, 0); // Radius of 1, no subdivisions
+            var material = new THREE.MeshPhongMaterial({ color: 0x00ff88 });
+            var dodecahedron = new THREE.Mesh(geometry, material);
+            dodecahedron.name = "Dodecahedron";
+            dodecahedron.position.x+=70;
+            dodecahedron.scale.set(20, 20, 20);
+            scene.add(dodecahedron);
+
+            var geometry = new THREE.TorusGeometry(1, 0.4, 16, 100); // Outer radius 1, tube radius 0.4
+            var material = new THREE.MeshPhysicalMaterial({ color: 0xff00ff });
+            var torus = new THREE.Mesh(geometry, material);
+            torus.name = "Torus";
+            torus.position.y-=50;
+            torus.scale.set(20, 20, 20);
+            scene.add(torus);
+
+            var geometry = new THREE.ConeGeometry(0.5, 2, 32); // Radius, height, segments
+            var material = new THREE.MeshLambertMaterial({ color: 0xffa500 });
+            var cone = new THREE.Mesh(geometry, material);
+            cone.name = "Cone";
+            cone.position.z-=70;
+            cone.position.x+=50;
+            cone.scale.set(20, 20, 20);
+            scene.add(cone);
             createLights(scene);
         }
 
