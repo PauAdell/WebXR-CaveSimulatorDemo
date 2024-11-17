@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>CAVE simulator</title>
+        <link type="text/css" rel="stylesheet" href="main.css">
+    </head>
+
+    <body>
+        <div id="info">
+            CAVE Simulator. The head and teapot are draggable. <br />
+            "L" See from Left Eye | "R" See from Right Eye | "S" toggle show scene  <br />
+        </div>
+
+        <!-- Check: https://threejs.org/docs/index.html#manual/en/introduction/Installation
+        for alternative installations -->
+
+        <script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
+        <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
+        <script src="https://unpkg.com/three@0.139.2/examples/js/controls/DragControls.js"></script>
+        <script src="https://unpkg.com/three@0.139.2/examples/js/geometries/TeapotGeometry.js"></script>
+        <!--addition for XR support-->
+
+
+        <script type="module">
+            import { VRButton } from 'https://unpkg.com/three@0.139.2/examples/jsm/webxr/VRButton.js';
+        class DisplaySurface
+        {
+
+            constructor(name, origin, u_vector, v_vector)
+            {
+                this.name = name;
+                this.origin = origin;
+                this.u = u_vector;
+                this.v = v_vector;
+            }
+
+            // Press T key to debug and see result values
+            viewMatrix(eye)
+            {
+                // Cross-product is the normal of the plane (forward direction)
+                // and we need to add its camera position (eye) so that we are
+                // looking at a point towards that direction
+                var target = this.v.clone().cross(this.u).add(eye);
+                // v value is the Up value of the display surface
+                var upVector = this.v.clone().normalize();
+                var mat = new THREE.Matrix4();
+                mat = mat.lookAt(eye, target, upVector); // this lookAt version creates only a rotation matrix
+                var translate = new THREE.Matrix4().makeTranslation(-eye.x, -eye.y, -eye.z);
+                mat = mat.multiplyMatrices(mat, translate);
+                return mat;
+            }
+
+            // Press P key to debug and see result values
+            // Press W to see the frustum area
+            // Press 1,2,3 or 4 to see the different frustums
+            // Press Q or E to activate/deactivate eyes
+            projectionMatrix(eye, znear, zfar, isRightEye, index)
+            {
+
+                // normalize uv
+                var uNorm = this.u.clone().normalize();
+                var vNorm = this.v.clone().normalize();
+
+                // Vertex of the screen edges
+                var leftScreenPos = this.origin.clone().sub(eye);
+                var rightScreenPos = this.origin.clone().add(this.u).sub(eye);
+                var topScreenPos = this.origin.clone().add(this.v).sub(eye);
+                var botScreeenPos = this.origin.clone().sub(eye);
+
+                // Direction from the eye to the display surface
+                var target = this.v.clone().cross(this.u).normalize();
+
+                // Compute distances using dot products
+                var lLp = leftScreenPos.dot(uNorm);
+                var rLp = rightScreenPos.dot(uNorm);
+                var tLp = topScreenPos.dot(vNorm);
+                var bLp = botScreeenPos.dot(vNorm);
+
+                var Np = leftScreenPos.dot(target);
+
+                // properties of similar triangles
+                // Lp/L = Np/N  --> L = (Lp*N)/Np
+                var left = lLp * znear / Np;
+                var right = rLp * znear / Np;
+                var bottom = bLp * znear / Np;
+                var top = tLp * znear / Np;
+
+                if (isRightEye) rEyeFrustumLines[index] = drawFrustum(eye, left, right, bottom, top, znear, zfar, false, index);
+                else lEyeFrustumLines[index] = drawFrustum(eye, left, right, bottom, top, znear, zfar, true, index);
+
+                return new THREE.Matrix4().makePerspective(left, right, top, bottom, znear, zfar);
+            }
+        }
+
+
+        var renderer, scene, camera;
+        var displaySurfaces, displaySurfaceScene, displaySurfaceTargets;
+        var eyeCenter, eyeScene;
+        var orbitControl;
+        var showScene = true;
+        // global values that we set in order to be able to change them
+        var gZnear = 50;
+        var gZfar = 200;
+        // new debugging functionality
+        var showFrustums = true;
+        var eyeFrustums = [true, false]; // [left, right]
+        var lEyeFrustumLines = [null, null, null, null];
+        var rEyeFrustumLines = [null, null, null, null];
+        var surfacesFrustums = [true, false, false, false]; // [front, left, right, bottom]
+        //var frustumLines
+
+        function addDragControlToObjects()
+        {
+            var objects = [];
+            objects.push(scene.getObjectByName("Teapot"));
+            objects.push(eyeScene.getObjectByName("Head"));
+
+            //console.log(objects);
+
+            var controls = new THREE.DragControls( objects, camera, renderer.domElement );
+            controls.addEventListener( 'hoveron', function ( event )
+                {
+                    orbitControl.enabled = false;
+                } );
+            controls.addEventListener( 'hoveroff', function ( event )
+            {
+                    orbitControl.enabled = true;
+            } );
+            controls.addEventListener( 'dragstart', function ( event )
+                {
+                    event.object.material.emissive.set( 0xaaaaaa );
+                } );
+            controls.addEventListener( 'dragend', function ( event )
+                {
+                    event.object.material.emissive.set( 0x000000 );
+            } );
+        }
+
+        function createEyeScene()
+        {
+            var IPD = 6.8;
+            eyeCenter = new THREE.Vector3(50, 20, 100);
+            // eye positions relative to the head
+            var eyeL = new THREE.Vector3( - IPD/2, 10, -6);
+            var eyeR = new THREE.Vector3( + IPD/2, 10, -6);
+
+            eyeScene = new THREE.Scene();
+
+            // add sphere representing head
+            var geometry = new THREE.SphereGeometry( 10, 32, 22 );
+            var material = new THREE.MeshPhongMaterial( { color: 0xaaaaaa } );
+            var head = new THREE.Mesh( geometry, material );
+            head.name = "Head";
+            head.position.set(eyeCenter.x, eyeCenter.y, eyeCenter.z);
+            eyeScene.add(head);
+
+            // add spheres representing L/R eyes
+            var geometry = new THREE.SphereGeometry( 3, 32, 22 );
+            var material = new THREE.MeshPhongMaterial( { color: 0xff0000 } );
+            var sphere = new THREE.Mesh( geometry, material );
+            sphere.name = "EyeL";
+            sphere.position.set(eyeL.x, eyeL.y, eyeL.z);
+            head.add(sphere);
+
+            var geometry = new THREE.SphereGeometry( 3, 32, 22 );
+            var material = new THREE.MeshPhongMaterial( { color: 0x0000ff } );
+            var sphere = new THREE.Mesh( geometry, material );
+            sphere.name = "EyeR";
+            sphere.position.set(eyeR.x, eyeR.y, eyeR.z);
+            head.add(sphere);
+
+            createLights(eyeScene);
+        }
+
+        function createRenderer()
+        {
+
+            renderer = new THREE.WebGLRenderer({preserveDrawingBuffer: true});
+            renderer.autoClear = false;
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            // Support XR
+            renderer.xr.enabled = true;
+            document.body.appendChild(VRButton.createButton(renderer));
+        }
+
+        function enableOrbitCamera(cam, renderer)
+        {
+            orbitControl = new THREE.OrbitControls(cam, renderer.domElement );
+            orbitControl.minDistance = 120;
+            orbitControl.maxDistance = 50000;
+        }
+
+        function createLights(scn)
+        {
+            var ambientLight = new THREE.AmbientLight(0x888888, 0.4);
+            scn.add(ambientLight);
+            var pointLight = new THREE.PointLight(0xffffff, 0.8);
+            pointLight.position.z += 200;
+            scn.add(pointLight);
+        }
+
+        function createScene()
+        {
+            scene = new THREE.Scene();
+
+            var geometry = new THREE.TeapotGeometry( 40, 15);
+            var material = new THREE.MeshPhongMaterial( { color: 0xffffff } );
+            var teapot = new THREE.Mesh(geometry, material);
+            teapot.name = "Teapot";
+            teapot.position.z-=70;
+            scene.add( teapot );
+
+            createLights(scene);
+        }
+
+        // create a scene with 3D objects representing the display surfaces
+        function createDisplaySurfaceScene()
+        {
+            displaySurfaceScene = new THREE.Scene();
+
+            // add display surfaces
+            for (var [index, displaySurface] of displaySurfaces.entries())
+            {
+                var origin = displaySurface.origin;
+                var u = displaySurface.u;
+                var v = displaySurface.v;
+
+                var geometry = new THREE.BoxGeometry(u.length(), v.length(), 0.01);
+                var material = new THREE.MeshPhongMaterial( {map: displaySurfaceTargets[index].texture} );
+                var cube = new THREE.Mesh( geometry, material );
+                cube.name = displaySurface.name;
+                if (displaySurface.name == "Left")
+                    cube.rotation.y = Math.PI / 2;
+
+                if (displaySurface.name == "Right")
+                    cube.rotation.y = - Math.PI / 2;
+
+                if (displaySurface.name == "Floor")
+                {
+                    cube.rotation.x =  Math.PI / 2;
+                    cube.rotation.z =  Math.PI ;
+                }
+
+                var uHalf = u.clone().multiplyScalar(0.5);
+                var vHalf = v.clone().multiplyScalar(0.5);
+                var center = new THREE.Vector3().addVectors(origin, uHalf);
+                center.add(vHalf);
+                cube.position.set(center.x, center.y, center.z);
+
+                displaySurfaceScene.add(cube);
+            }
+
+            createLights(displaySurfaceScene);
+        }
+
+        function createDisplaySurfaceTargets()
+        {
+            const SIZE = 1024;  // texture resolution
+            displaySurfaceTargets = [];
+
+            for (var v of displaySurfaces)
+                displaySurfaceTargets.push(new THREE.WebGLRenderTarget(SIZE, SIZE));
+        }
+
+
+        function createCamera()
+        {
+            camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 10000 );
+            camera.position.set( 100, 100, 300 );
+            camera.lookAt( 0, 0, 0 );
+        }
+
+        function createDisplaySurfaces()
+        {
+            displaySurfaces = [];
+            // FRONT SCREEN
+            var frontScreen = new DisplaySurface("Front",
+                new THREE.Vector3(-150.0, -150.0, -150.0),
+                new THREE.Vector3(300.0, 0.0,   0.0),
+                new THREE.Vector3(0.0, 300.0,   0.0));
+            displaySurfaces.push(frontScreen);
+
+            // LEFT SCREEN
+            var leftScreen = new DisplaySurface("Left",
+                new THREE.Vector3(-150.0, -150.0, 150.0),
+                new THREE.Vector3(0.0, 0.0,  -300.0),
+                new THREE.Vector3(0.0, 300.0,   0.0));
+            displaySurfaces.push(leftScreen);
+
+            // to be completed by you
+            // RIGHT SCREEN
+
+            var rightScreen = new DisplaySurface("Right",
+                new THREE.Vector3( 150.0, -150.0, -150.0),
+                new THREE.Vector3(0.0, 0.0,  300.0),
+                new THREE.Vector3(0.0, 300.0,   0.0));
+            displaySurfaces.push(rightScreen);
+
+            // FLOOR SCREEN
+
+            var floorScreen = new DisplaySurface("Floor",
+                new THREE.Vector3(-150.0, -150.0, 150.0),
+                new THREE.Vector3(300.0, 0.0,  0.0),
+                new THREE.Vector3(0.0, 0.0, -300.0));
+            displaySurfaces.push(floorScreen);
+
+        }
+
+        function getLeftEyePosition()
+        {
+            var eye = eyeScene.getObjectByName("EyeL");
+            return eye.getWorldPosition(new THREE.Vector3());
+        }
+
+        function getRightEyePosition()
+        {
+            var eye = eyeScene.getObjectByName("EyeR");
+            return eye.getWorldPosition(new THREE.Vector3());
+        }
+
+        function cameraFromViewProj(view, proj)
+        {
+            var cam = camera.clone();
+            var inv = new THREE.Matrix4();
+            inv.copy(view).invert();
+            cam.position.set(inv.elements[12], inv.elements[13], inv.elements[14]);
+            cam.setRotationFromMatrix(view);
+            cam.projectionMatrix = proj.clone();
+            return cam;
+        }
+
+        function drawFrustum(eye, left, right, bottom, top, znear, zfar, red, index) {
+            // Calculate the vertices of the near plane based on `left`, `right`, `top`, `bottom` at `znear`
+            //if (index == 0)
+            var newEye = eye.clone();
+            if (index == 1) newEye = new THREE.Vector3(-eye.z, eye.y, eye.x);
+            if (index == 2) newEye = new THREE.Vector3(eye.z, eye.y, -eye.x);
+            if (index == 3) newEye = new THREE.Vector3(eye.x, -eye.z, eye.y);
+            const nearTopLeft = new THREE.Vector3(left, top, -znear).add(newEye);
+            const nearTopRight = new THREE.Vector3(right, top, -znear).add(newEye);
+            const nearBottomLeft = new THREE.Vector3(left, bottom, -znear).add(newEye);
+            const nearBottomRight = new THREE.Vector3(right, bottom, -znear).add(newEye);
+
+            // Calculate the far plane vertices using similar triangles to scale by zfar/znear
+            const farLeft = left * (zfar / znear);
+            const farRight = right * (zfar / znear);
+            const farTop = top * (zfar / znear);
+            const farBottom = bottom * (zfar / znear);
+
+            const farTopLeft = new THREE.Vector3(farLeft, farTop, -zfar).add(newEye);
+            const farTopRight = new THREE.Vector3(farRight, farTop, -zfar).add(newEye);
+            const farBottomLeft = new THREE.Vector3(farLeft, farBottom, -zfar).add(newEye);
+            const farBottomRight = new THREE.Vector3(farRight, farBottom, -zfar).add(newEye);
+
+            // Define vertices as line segments for the frustum edges
+            const vertices = [
+                // Near plane edges
+                nearTopLeft, nearTopRight,
+                nearTopRight, nearBottomRight,
+                nearBottomRight, nearBottomLeft,
+                nearBottomLeft, nearTopLeft,
+
+                // Far plane edges
+                farTopLeft, farTopRight,
+                farTopRight, farBottomRight,
+                farBottomRight, farBottomLeft,
+                farBottomLeft, farTopLeft,
+
+                // Connecting lines between near and far planes
+                nearTopLeft, farTopLeft,
+                nearTopRight, farTopRight,
+                nearBottomLeft, farBottomLeft,
+                nearBottomRight, farBottomRight
+            ];
+
+            // Convert vertices into a flat array for BufferGeometry
+            const positions = [];
+            vertices.forEach(vertex => {
+                positions.push(vertex.x, vertex.y, vertex.z);
+            });
+
+            // Create BufferGeometry and add vertices
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+            // Create a material for the lines
+            var col = 0xff0000 // red
+            if (!red) col = 0x0000ff //blue
+            const material = new THREE.LineBasicMaterial({
+                color: col,
+                transparent: true,
+                opacity: 0.5
+            });
+
+            // Create the line segments
+            var lines = new THREE.LineSegments(geometry, material);
+
+
+            if (index == 1){
+                lines.rotation.y = Math.PI / 2; //rotate the frustum to look left
+            }
+            if (index == 2){
+                lines.rotation.y = -Math.PI / 2; //rotate the frustum to look right
+            }
+            if (index == 3){
+                lines.rotation.x = -Math.PI / 2; //rotate the frustum to look down
+            }
+
+            return lines
+        }
+
+        //let leftProjections = [];
+        //let rightProjections = [];
+        // refresh function
+        var animate = function () {
+            var gl = renderer.getContext();
+            requestAnimationFrame(animate);
+
+            // 1. render scene objects
+            renderer.setClearColor(0x808080);
+            renderer.clear();
+            if (showScene)
+                renderer.render(scene, camera);
+
+            // 2. render scene objects onto a texture, for each target
+            for (let [index, displaySurface] of displaySurfaces.entries())
+            {
+                renderer.setRenderTarget(displaySurfaceTargets[index]);
+                renderer.setClearColor(0x404040);
+                renderer.clear();
+
+                // left eye on RED channel
+                gl.colorMask(1, 0, 0, 0);
+                var eye = getLeftEyePosition();
+                var view = displaySurface.viewMatrix(eye);
+                var proj = displaySurface.projectionMatrix(eye, gZnear, gZfar, false, index);
+                var leftCamera = cameraFromViewProj(view, proj);
+                renderer.render(scene, leftCamera);
+
+                // right eye on GREEN, BLUE channels
+                gl.colorMask(0, 1, 1, 0);
+                var eye = getRightEyePosition();
+                var view = displaySurface.viewMatrix(eye);
+                var proj = displaySurface.projectionMatrix(eye, gZnear, gZfar, true, index);
+                var rightCamera = cameraFromViewProj(view, proj);
+                renderer.clearDepth();
+                renderer.render(scene, rightCamera);
+
+                gl.colorMask(1, 1, 1, 0);
+            }
+            // restore state
+            renderer.setRenderTarget(null);
+            renderer.setClearColor(0x000000);
+
+            // 3. render display surfaces as (textured) quads
+            renderer.render(displaySurfaceScene, camera);
+
+            // if (frustumLines) {
+            // renderer.render(frustumLines, mainCamera); // Render the frustum lines using the main camera
+            // }
+
+            if (showFrustums) {
+                if (eyeFrustums[0]) {
+                    for (let i = 0; i < lEyeFrustumLines.length; i++) {
+                        if (surfacesFrustums[i]) scene.add(lEyeFrustumLines[i]);
+                    }
+
+                }
+                if (eyeFrustums[1]){
+                    for (let i = 0; i < rEyeFrustumLines.length; i++) {
+                        if (surfacesFrustums[i]) scene.add(rEyeFrustumLines[i]);
+                    }
+                }
+                renderer.render(scene, camera);
+                if (eyeFrustums[0]) {
+                    for (let i = 0; i < lEyeFrustumLines.length; i++) {
+                        if (surfacesFrustums[i]) scene.remove(lEyeFrustumLines[i]);
+                    }
+
+                } 
+                if (eyeFrustums[1]){
+                    for (let i = 0; i < rEyeFrustumLines.length; i++) {
+                        if (surfacesFrustums[i]) scene.remove(rEyeFrustumLines[i]);
+                    }
+                }
+            }
+
+            // 4. render eyes
+            renderer.render(eyeScene, camera);
+
+        };
+
+
+        window.addEventListener( 'keydown', function ( event )
+        {
+                switch ( event.code ) {
+                    case 'KeyL':
+                        var eye = getLeftEyePosition();
+                        camera.position.set(eye.x, eye.y, eye.z);
+                        break;
+
+                    case 'KeyR':
+                        var eye = getRightEyePosition();
+                        camera.position.set(eye.x, eye.y, eye.z);
+                        break;
+
+                    case 'KeyS':
+                        showScene = !showScene;
+                        break;
+
+                    case 'KeyT':
+                        var viewF = displaySurfaces[0].viewMatrix(new THREE.Vector3(50,20,100));
+                        var viewL = displaySurfaces[1].viewMatrix(new THREE.Vector3(50,20,100));
+                        var viewR = displaySurfaces[2].viewMatrix(new THREE.Vector3(50,20,100));
+                        var viewB = displaySurfaces[3].viewMatrix(new THREE.Vector3(50,20,100));
+                        console.log("View matrices:");
+                        console.log(viewF);
+                        console.log(viewL);
+                        console.log(viewR);
+                        console.log(viewB);
+                        break;
+                    case 'KeyP':
+                        var projF = displaySurfaces[0].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+                        var projL = displaySurfaces[1].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+                        var projR = displaySurfaces[2].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+                        var projB = displaySurfaces[3].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+                        console.log("Projection matrices:");
+                        console.log("Front wall:");
+                        console.log(projF);
+                        console.log("Left wall:");
+                        console.log(projL);
+                        console.log("Right wall:");
+                        console.log(projR);
+                        console.log("Bottom wall:");
+                        console.log(projB);
+                        break;
+                    case 'ArrowUp':
+                        gZnear += 1;
+                        break;
+                    case 'ArrowDown':
+                        gZnear -= 1;
+                        break;
+                    case 'ArrowLeft':
+                        gZfar += 1;
+                        break;
+                    case 'ArrowRight':
+                        gZfar -= 1;
+                        break;
+                    // All new frustum debugging buttons
+                    case 'KeyW':
+                        console.log("Activated/deactivated frustum debugging")
+                        if(showFrustums) showFrustums = false;
+                        else showFrustums = true;
+                        break;
+                    case 'KeyQ':
+                        console.log("Activated/deactivated left eye frustum")
+                        if(eyeFrustums[0]) eyeFrustums[0] = false;
+                        else eyeFrustums[0] = true;
+                        break;
+                    case 'KeyE':
+                        console.log("Activated/deactivated right eye frustum")
+                        if(eyeFrustums[1]) eyeFrustums[1] = false;
+                        else eyeFrustums[1] = true;
+                        break;
+                    case 'Digit1':
+                        console.log("Activated/deactivated front frustum")
+                        if(surfacesFrustums[0]) surfacesFrustums[0] = false;
+                        else surfacesFrustums[0] = true;
+                        break;
+                    case 'Digit2':
+                        console.log("Activated/deactivated left frustum")
+                        if(surfacesFrustums[1]) surfacesFrustums[1] = false;
+                        else surfacesFrustums[1] = true;
+                        break;
+                    case 'Digit3':
+                        console.log("Activated/deactivated right frustum")
+                        if(surfacesFrustums[2]) surfacesFrustums[2] = false;
+                        else surfacesFrustums[2] = true;
+                        break;
+                    case 'Digit4':
+                        console.log("Activated/deactivated bottom frustum")
+                        if(surfacesFrustums[3]) surfacesFrustums[3] = false;
+                        else surfacesFrustums[3] = true;
+                        break;
+                }
+        });
+
+
+
+        createRenderer();  			// create WebGL renderer
+        createDisplaySurfaces();	// Display surfaces
+        createDisplaySurfaceTargets(); // Textures for the display surfaces
+        createDisplaySurfaceScene();	// 3D objects for the display surfaces
+        createEyeScene();	// spheres representing head + eyes
+        createScene();		// some objects to test (teapot...)
+        createCamera();		// a third-person camera
+        //createProjections();
+        enableOrbitCamera(camera, renderer);  // basic camera control
+        addDragControlToObjects();	// allow some objects to be dragged
+        animate();
+
+
+		</script>
+    </body>
+</html>
