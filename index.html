@@ -185,7 +185,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
             // Support XR
-            //renderer.xr.enabled = true;
+            renderer.xr.enabled = true;
             document.body.appendChild(VRButton.createButton(renderer));
         }
 
