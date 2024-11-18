@@ -454,9 +454,10 @@
         // refresh function
         var animate = function () {
             var gl = renderer.getContext();
-            renderer.setAnimationLoop(animate);
+            rederer.setAnimationLoop(animate);
 
             // 1. render scene objects
+            renderer.xr.updateCamera(camera);
             renderer.setClearColor(0x808080);
             renderer.clear();
             if (showScene)
