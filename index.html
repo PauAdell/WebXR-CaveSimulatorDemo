@@ -21,19 +21,9 @@
         <script src="https://unpkg.com/three@0.139.2/examples/js/geometries/TeapotGeometry.js"></script>
         <!--addition for XR support-->
 
-	<script type="importmap">
-		{
-			"imports": {
-				"three": "../build/three.module.js",
-				"three/addons/": "./jsm/"
-			}
-		}
-	</script>
-
 
         <script type="module">
-		import * as THREE from 'three';
-    		import { XRButton } from 'three/addons/webxr/XRButton.js';
+    		import { XRButton } from 'XRButton.js';
         class DisplaySurface
         {
 
