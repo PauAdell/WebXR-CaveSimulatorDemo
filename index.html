@@ -454,7 +454,7 @@
         // refresh function
         var animate = function () {
             var gl = renderer.getContext();
-            renderer.setAnimationFrame(animate);
+            renderer.setAnimationLoop(animate);
 
             // 1. render scene objects
             renderer.setClearColor(0x808080);
