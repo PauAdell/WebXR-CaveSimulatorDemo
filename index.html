@@ -23,7 +23,7 @@
 
 
         <script type="module">
-            import { VRButton } from 'https://unpkg.com/three@0.139.2/examples/jsm/webxr/XRButton.js';
+            import { XRButton } from 'three/addons/webxr/XRButton.js';
         class DisplaySurface
         {
 
@@ -185,8 +185,12 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
             // Support XR
+	    renderer.setAnimationLoop( animate );
             renderer.xr.enabled = true;
-            document.body.appendChild(XRButton.createButton(renderer));
+            document.body.appendChild( XRButton.createButton( renderer, {
+					'optionalFeatures': [ 'depth-sensing' ],
+					'depthSensing': { 'usagePreference': [ 'gpu-optimized' ], 'dataFormatPreference': [] }
+				} ) );
         }
 
         function enableOrbitCamera(cam, renderer)
@@ -454,8 +458,7 @@
         // refresh function
         var animate = function () {
             var gl = renderer.getContext();
-            renderer.setAnimationLoop(animate);
-
+	
             // 1. render scene objects
             renderer.xr.updateCamera(camera);
             renderer.setClearColor(0x808080);
